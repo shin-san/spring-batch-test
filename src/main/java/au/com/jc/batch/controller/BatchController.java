@@ -51,6 +51,8 @@ public class BatchController {
 
     Job sendReportToDB;
 
+    Job sendReport1ToDB;
+
     @Value("${input.report.folder}")
     private String reportFolder;
 
@@ -69,11 +71,13 @@ public class BatchController {
     public BatchController(JobLauncher jobLauncher,
                            JobExplorer jobExplorer,
                            JobRepository jobRepository,
-                           Job sendReportToDB) {
+                           Job sendReportToDB,
+                           Job sendReport1ToDB) {
         this.jobLauncher = jobLauncher;
         this.jobExplorer = jobExplorer;
         this.jobRepository = jobRepository;
         this.sendReportToDB = sendReportToDB;
+        this.sendReport1ToDB = sendReport1ToDB;
     }
 
 
@@ -135,8 +139,15 @@ public class BatchController {
                     .addString(Constants.FILE_HASH, fileHash)
                     .toJobParameters();
 
-            jobLauncher.run(sendReportToDB,
-                    jobParameters);
+            switch (jobName) {
+                case Constants.REPORT_JOB_NAME:
+                    jobLauncher.run(sendReportToDB, jobParameters);
+                    break;
+                case Constants.REPORT1_JOB_NAME:
+                    jobLauncher.run(sendReport1ToDB, jobParameters);
+                    break;
+            }
+
         } catch (JobExecutionAlreadyRunningException e) {
             log.info("Process is already running. Skipping job");
         } catch (JobInstanceAlreadyCompleteException e) {

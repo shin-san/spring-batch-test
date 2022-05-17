@@ -1,8 +1,7 @@
-package au.com.jc.batch.jobs;
+package au.com.jc.batch.jobs.report;
 
 import au.com.jc.batch.model.Record;
 import au.com.jc.batch.model.Report;
-import au.com.jc.batch.tasklet.FileMovingTasklet;
 import au.com.jc.batch.util.Constants;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
@@ -11,6 +10,7 @@ import org.springframework.batch.core.configuration.annotation.JobBuilderFactory
 import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.launch.support.RunIdIncrementer;
+import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.ItemStreamReader;
 import org.springframework.batch.item.database.BeanPropertyItemSqlParameterSourceProvider;
@@ -34,10 +34,15 @@ public class ReportConfiguration {
 
     private StepBuilderFactory stepBuilderFactory;
 
+    private Tasklet moveFileTasklet;
+
     @Autowired
-    public ReportConfiguration(JobBuilderFactory jobBuilderFactory, StepBuilderFactory stepBuilderFactory) {
+    public ReportConfiguration(JobBuilderFactory jobBuilderFactory,
+                               StepBuilderFactory stepBuilderFactory,
+                               Tasklet moveFileTasklet) {
         this.jobBuilderFactory = jobBuilderFactory;
         this.stepBuilderFactory = stepBuilderFactory;
+        this.moveFileTasklet = moveFileTasklet;
     }
 
     @Value("${input.report.folder}")
@@ -62,11 +67,18 @@ public class ReportConfiguration {
     }
 
     @Bean
-    public JdbcBatchItemWriter<Record> writeToDB(DataSource dataSource) {
+    public JdbcBatchItemWriter<Record> writeReportToDB(DataSource dataSource) {
 
         return new JdbcBatchItemWriterBuilder<Record>()
                 .itemSqlParameterSourceProvider(new BeanPropertyItemSqlParameterSourceProvider<>())
-                .sql("INSERT INTO record (id,date,impression,clicks,earning) VALUES (:id , :date, :impression, :clicks, :earning)")
+                .sql("INSERT INTO record (id,date,impression,clicks,earning)\n" +
+                        "VALUES (:id,:date,:impression,:clicks,:earning)\n" +
+                        "ON CONFLICT (id)\n" +
+                        "DO UPDATE set\n" +
+                        "date = :date,\n" +
+                        "impression = :impression,\n" +
+                        "clicks = :clicks,\n" +
+                        "earning = :earning")
                 .dataSource(dataSource)
                 .build();
     }
@@ -78,36 +90,31 @@ public class ReportConfiguration {
     }
 
     @Bean
-    public FileMovingTasklet fileMovingTasklet() {
-        return new FileMovingTasklet();
-    }
-
-    @Bean
-    public Step transformXMLtoPojo(ItemStreamReader<Record> reportItemReader,
+    public Step transformReportXMLtoPojo(ItemStreamReader<Record> reportItemReader,
             ItemProcessor<Record, Record> reportProcessor,
-                                   JdbcBatchItemWriter<Record> writeToDB) {
-        return stepBuilderFactory.get("transformXMLtoPojo")
+                                   JdbcBatchItemWriter<Record> writeReportToDB) {
+        return stepBuilderFactory.get("transformReportXMLtoPojo")
                 .<Record, Record> chunk(1)
                 .reader(reportItemReader)
                 .processor(reportProcessor)
-                .writer(writeToDB)
+                .writer(writeReportToDB)
                 .build();
     }
 
     @Bean
-    public Step moveInputToSuccess() {
-        return stepBuilderFactory.get("moveInputToSuccess")
-                .tasklet(fileMovingTasklet())
+    public Step moveReportToSuccess() {
+        return stepBuilderFactory.get("moveReportToSuccess")
+                .tasklet(moveFileTasklet)
                 .build();
     }
 
     @Bean
-    public Job sendReportToDB(Step transformXMLtoPojo,
-                              Step moveInputToSuccess) {
+    public Job sendReportToDB(Step transformReportXMLtoPojo,
+                              Step moveReportToSuccess) {
         return jobBuilderFactory.get(Constants.REPORT_JOB_NAME)
                 .incrementer(new RunIdIncrementer())
-                .flow(transformXMLtoPojo)
-                .next(moveInputToSuccess)
+                .flow(transformReportXMLtoPojo)
+                .next(moveReportToSuccess)
                 .end()
                 .build();
     }

@@ -1,4 +1,4 @@
-package au.com.jc.batch.jobs;
+package au.com.jc.batch.jobs.report;
 
 
 import au.com.jc.batch.model.Record;
